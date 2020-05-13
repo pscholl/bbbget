@@ -5,6 +5,6 @@ bbbget.py - script to download BigBlueButton recording
 
 ```
 ./bbbget.py <my-fancy-bbb-server>/playback/presentation/2.0/playback.html?meetingId=2c213607ffefdb6fca039f176f132f35c7cc2a79-1589181959061 -o my-recording.mkv
-´´´
+```
 
 Will create an mkv with both streams included.
