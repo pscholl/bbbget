@@ -7,7 +7,7 @@ import argparse, urllib.parse, subprocess
 parser = argparse.ArgumentParser(description='downloads a public BigBlueButton recording to a local file')
 parser.add_argument('url', type=urllib.parse.urlparse,
                     help='the url of the recording')
-parser.add_argument('-o', '--output', type=str, default='output.mkv',
+parser.add_argument('-o', '--output', type=str, default='output.webm',
                     help='where to write the result too')
 args = parser.parse_args()
 
@@ -18,7 +18,7 @@ try:
     webcams = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/video/webcams.webm"
     slides = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/slides_new.xml"
 
-    cmd = f'ffmpeg -i {deskshare} -i {webcams} -c copy -map 0 -map 1 -f matroska -y'.split()
+    cmd = f'ffmpeg -i {deskshare} -i {webcams} -c copy -map 0 -map 1 -y'.split()
     cmd.append( args.output )
     subprocess.run(cmd)
 except KeyError:
