@@ -2,54 +2,89 @@
 #
 # script to download bbb recordings to a local ..mkv file
 
-import argparse, urllib.parse, subprocess, sys
+import argparse, subprocess, sys, json, html
+import xml.etree.ElementTree as ET
+from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 parser = argparse.ArgumentParser(description='downloads a public BigBlueButton recording to a local file')
-parser.add_argument('url', type=urllib.parse.urlparse,
+parser.add_argument('url', type=urlparse,
                     help='the url of the recording')
 parser.add_argument('-d', '--deskshare', action="store_true",
-                    help='Download deskshare')
+                    help='download deskshare stream')
 parser.add_argument('-w', '--webcams', action="store_true",
-                    help='Download webcams')
-parser.add_argument('-s', '--slides', action="store_true",
-                    help='Download slides')
+                    help='download webcam stream')
+parser.add_argument('-e', '--events', action="store_true",
+                    help='download event stream')
+parser.add_argument('-a', '--auto', action="store_true", default=True,
+                    help='download all available streams')
 parser.add_argument('-o', '--output', type=str, default='output.webm',
                     help='where to write the result too')
 args = parser.parse_args()
 
+def available(url):
+    try:    return urlopen(url)
+    except: return False
+
+def totime(t):
+    return f'{int(t/3600):02d}:{int(t/60)%60:02d}:{int(t%60):06.3f}'
+
+def tovtt(node):
+    time = float(node.get('in'))
+    obj = json.dumps(\
+            { k : html.unescape(node.get(k))\
+              for k in node.keys() if 'in' != k })
+    return f'{totime(time)} --> {totime(time+1)}\n{obj}\n'
+
 try:
-    meetingId = urllib.parse.parse_qs(args.url.query)['meetingId'][0]
+    if args.webcams or args.deskshare or args.events:
+        args.auto = False
 
-    inputs = {}
-    if args.deskshare:
-        deskshare = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/deskshare/deskshare.webm"
-        inputs["deskshare"] = deskshare
+    meetingId = parse_qs(args.url.query)['meetingId'][0]
 
-    if args.webcams:
-        webcams = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/video/webcams.webm"
-        inputs["webcams"] = webcams
+    deskshare = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/deskshare/deskshare.webm"
+    webcams = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/video/webcams.webm"
+    events = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/slides_new.xml"
 
-    if args.slides:
-        slides = f"{args.url.scheme}://{args.url.netloc}/presentation/{meetingId}/slides_new.xml"
-        inputs["slides"] = slides
+    cmd, cnt = f'ffmpeg ', 0
 
-    if len(inputs.keys()) < 1: 
-        sys.exit("Specify at least one input")
+    if args.deskshare or args.auto\
+       and available(deskshare):
+        cmd += f'-i {deskshare} '
+        cnt += 1
 
-    cmd = f'ffmpeg'
+    if args.webcams or args.auto\
+       and available(webcams):
+        cmd += f'-i {webcams} '
+        cnt += 1
 
-    for inp in inputs.keys():
-        cmd += f' -i {inputs[inp]}'
+    if args.events or args.auto\
+       and available(events):
+        cmd += f'-f webvtt -i pipe:0 '
+        cnt += 1
 
-    cmd += f' -c copy '
+    cmd += '-c:v copy -c:s mov_text ' if args.output.endswith('mp4') else\
+           '-c copy '
 
-    for i in range(len(inputs.keys())):
-        cmd += f'-map {i}'
-
-    cmd += f' -y'
+    cmd += ' '.join(f'-map {x}' for x in range(cnt))
+    cmd += ' -y '
     cmd = cmd.split()
     cmd.append( args.output )
-    subprocess.run(cmd)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, encoding='utf8')
 
-except KeyError:
+    # if we want to get an event stream, the xml format has to be translated
+    # to a subtitle format (we chose webvtt)
+    if args.events or args.auto\
+       and available(events):
+        xml = urlopen(events).read()
+        xml = ET.fromstring(xml)
+        vtt = (tovtt(x) for x in xml)
+
+        proc.stdin.write('WEBVTT\n\n')
+        proc.stdin.write('\n'.join(vtt))
+        proc.stdin.close()
+
+    proc.wait()
+
+except KeyError as e:
     print("url does not contain a meetingId")
